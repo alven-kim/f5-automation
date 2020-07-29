@@ -1,0 +1,9 @@
+# except
+
+*.rtf
+*.py
+.DS_Store
+__pycache__/
+f5_automation/*.py
+f5_automation_with_jira/*.py
+f5_automation_with_jira/*.sh

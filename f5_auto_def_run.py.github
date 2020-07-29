@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+
+from src/f5_auto_def import *
+
+NODE()
+POOL()
+MEMBER()
+VSERVER()

@@ -1,0 +1,10 @@
+api01.test.node 172.20.50.211
+api02.test.node 172.20.50.214
+api03.test.node 172.20.50.193
+api04.test.node 172.20.50.189
+api05.test.node 172.20.50.216
+api06.test.node 172.20.50.213
+api07.test.node 172.20.50.219
+api08.test.node 172.20.50.208
+api09.test.node 172.20.50.218
+api10.test.node 172.20.50.210

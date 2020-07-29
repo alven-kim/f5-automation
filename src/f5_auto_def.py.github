@@ -1,0 +1,173 @@
+#!/usr/bin/env python3
+
+################################################## F5 VServer Create automation AND JIRA Comments Add ##################################################
+########## Ref-F5-SDK-Standard : https://pythonhosted.org/f5-sdk/apidoc/f5.bigip.tm.ltm.html#module-f5.bigip.tm.ltm.profile
+########## Ref-F5-SDK-Google : https://lessonsintech.wordpress.com/2018/06/26/f5-python-sdk-basics/
+########## Ref-JIRA-Add-Comments-Standard : https://jira.readthedocs.io/en/master/examples.html
+########## Ref-JIRA-Documents : https://buildmedia.readthedocs.org/media/pdf/jira/stable/jira.pdf
+
+
+### Import the F5 module (Use pip to install> pip install f5-sdk) 
+from f5.bigip import ManagementRoot
+from getpass import getpass
+from jira import JIRA
+from contextlib import ExitStack
+from itertools import zip_longest
+import re, sys, os, subprocess, fileinput
+
+### Define unique variables 
+f5_ip = input('F5 Device Domain(or IP): ')
+user = input('F5 GUI Username: ')
+password = getpass('F5 GUI Password: ')
+partition = 'Common'
+
+### Connect to the F5 
+mgmt = ManagementRoot(f5_ip, user, password)
+ltm = mgmt.tm.ltm
+
+### Define F5-SDK Variables 
+NODEDF = mgmt.tm.ltm.nodes
+POOLDF = mgmt.tm.ltm.pools
+VSERVERDF = mgmt.tm.ltm.virtuals
+
+### Custom User Variables 
+DOMAIN = input('Domain FQDN Insert: ')
+VIP = input('VIP Insert: ')
+VPORT = input('VPORT Insert: ')
+RPORT = input('RPORT Input: ')
+POOL_NAME = (DOMAIN + '_' + RPORT)
+HEALTH = input('Pool-Health-Check: ')
+VS_NAME = (DOMAIN + '_' + VPORT)
+DESCRIPTION = input('Description Insert: ')
+SERVICE = input('HTTP or HTTPS: ').lower()
+
+
+
+
+######################################### CASE-4 ######################################### - Iterating over lines in a file
+## Ref : https://runestone.academy/runestone/books/published/thinkcspy/Files/Iteratingoverlinesinafile.html
+
+print('############################## F5 Node ~ VServer Create Automation START ##############################')
+
+def NODE():
+	FILE = open("insert_node.txt", "r")
+	
+	for NODE in FILE:
+		n_values = NODE.split()
+		if NODEDF.node.exists(partition='Common', name=n_values[0]):
+			print("Failed ----- Node Already Exists", n_values[0], n_values[1])
+			pass
+		else:
+			NODEDF.node.create(partition='Common', name=n_values[0], address=n_values[1], description=DESCRIPTION)
+			print("Success ----- Node Create", "Node:", n_values[0], "IP:", n_values[1] )
+	FILE.close()
+
+
+
+
+#################### Create Pool ####################
+def POOL():
+	if POOLDF.pool.exists(name=POOL_NAME):
+		print("Failed ----- Pool Exists", POOL_NAME)
+		pass
+	else:
+		POOLDF.pool.create(partition='Common', name=POOL_NAME, description=DESCRIPTION, monitor=HEALTH, loadBalancingMode='ratio-least-connections-member')
+		print("Success ----- Pool Create", POOL_NAME)
+
+
+
+
+
+##################### Create Pool-member ####################
+def MEMBER():
+	POOL_LOAD = POOLDF.pool.load(partition='Common', name=POOL_NAME)
+	FILE = open("insert_node.txt", "r")
+	
+	
+	for POOL in FILE:
+		p_values = POOL.split()
+		if POOL_LOAD.members_s.members.exists(partition='Common', name=p_values[0] + ':' + RPORT):
+		#if mgmt.tm.ltm.pool.members_s.members.exists(partition='Common', name=POOL_NAME):
+			print("Failed ----- Pool-Member Already Exists", p_values[0], p_values[1])
+			pass
+		else:
+			POOL_LOAD.members_s.members.create(partition='Common', name=p_values[0] + ':' + RPORT)
+			print("Success ----- Pool-Member Create", "Member-Node:", p_values[0], "Member-IP:", p_values[1])
+	
+			#POOL_LOAD.update(loadBalancingMode='ratio-least-connections-member')
+	
+	FILE.close()
+
+
+## loadBalancingMode --- case sensitive ##
+#POOL_LOAD.update(monitor='tcp', loadBalancingMode='ratio-least-connections-member')
+#POOL_LOAD.update(monitor='tcp and http', loadBalancingMode='ratio-least-connections-member')
+#POOL_LOAD.update(monitor='tcp or http', loadBalancingMode='ratio-least-connections-member')
+
+
+
+
+##################### Create VServer #####################
+def VSERVER():
+	PROFILES_HTTP = [
+		{'name': 'tcp-wan-optimized'},
+		{'name': 'tcp-lan-optimized'},
+		{'name': 'http'}
+	]
+	
+	
+	PARAMS_HTTP = {'name': VS_NAME,
+		'partition': 'Common',
+		'destination': '{}:{}'.format(VIP, VPORT),
+		'mask': '255.255.255.255',
+		'description': DESCRIPTION,
+		'pool': POOL_NAME,
+		'profiles': PROFILES_HTTP,
+		'sourceAddressTranslation': {'type': 'snat', 'pool': 'snat_172.16.0.0_24'},
+	#	'destination': '{}:{}'.format('10.20.30.210',str(80)),
+	#	'profiles': ['tcp-wan-optimized', 'tcp-lan-optimized', 'http'],
+	#	'sourceAddressTranslation': {'type': 'auto'}
+	#	'vlansEnabled': True,
+	#	'vlans': ['/Common/internal']
+		}
+	
+	
+	PROFILES_HTTPS = [
+		{'name': 'tcp-wan-optimized'},
+		{'name': 'tcp-lan-optimized'},
+		{'name': 'http'},
+		{'name': 'clientssl-secure'},
+		{'name': 'serverssl'}
+	]
+	
+	PARAMS_HTTPS = {'name': VS_NAME,
+		'partition': 'Common',
+		'destination': '{}:{}'.format(VIP, VPORT),
+		'mask': '255.255.255.255',
+		'description': DESCRIPTION,
+		'pool': POOL_NAME,
+		'profiles': PROFILES_HTTPS,
+		'sourceAddressTranslation': {'type': 'snat', 'pool': 'snat_172.16.0.0_24'},
+	#	'destination': '{}:{}'.format('10.20.30.210',str(443)),
+	#	'profiles': ['tcp-wan-optimized', 'tcp-lan-optimized', 'http'],
+	#	'sourceAddressTranslation': {'type': 'auto'}
+	#	'vlansEnabled': True,
+	#	'vlans': ['/Common/internal']
+		}
+	
+	
+	
+	
+	if VSERVERDF.virtual.exists(partition='Common', name=VS_NAME, destination=VIP + VPORT):
+		print("Failed ----- VServer Already Exists", VS_NAME)
+		pass
+	elif SERVICE == 'http':
+		VSERVERDF.virtual.create(**PARAMS_HTTP)
+		print("Success ----- Create Virtual-Server:", VS_NAME)
+	elif SERVICE == 'https':
+		VSERVERDF.virtual.create(**PARAMS_HTTPS)
+		print("Success ----- Create Virtual-Server:", VS_NAME)
+	else:
+		print("Failed ----- VServer Unknown Error", VS_NAME)
+
+
